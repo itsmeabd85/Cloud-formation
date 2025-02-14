@@ -1,0 +1,126 @@
+AWSTemplateFormatVersion: "2010-09-09"
+
+Description: The template is building VPC # in this description section we can write related to Project
+
+Metadata:
+  templateMetadata: # Change this to the appropriate metadata object name
+    Description: Metadata for CloudFormation template # Add any metadata information here
+
+Parameters:
+  VpcCidr:
+    Type: String
+    Default: 10.0.0.0/16
+    Description: Enter the CIDR Ip range for the VpcCidr
+
+  PublicSubnetCidr:
+    Type: String
+    Default: 10.0.0.0/24
+    Description: Enter the CIDR Ip range for the PublicSubnetCidr1
+
+  PrivateSubnetCidr:
+    Type: String
+    Default: 10.0.1.0/24
+    Description: Enter the CIDR Ip range for the PrivateSubnetCidr
+
+  AvailabilityZones:
+    Type: List<AWS::EC2::AvailabilityZone::Name>
+    Description: Select the Availability Zones for the subnets
+
+  CreatePrivateDBSubnet: # if we select yes then only its created that or else not create
+    Type: String
+    Default: "no"
+    Description: Specify whether to create a private DB subnet (yes or no)
+    AllowedValues:
+      - "yes"
+      - "no"
+
+Conditions:
+  CreatePrivateDBSubnetCondition: !Equals [!Ref CreatePrivateDBSubnet, "yes"]
+
+Resources: # set of resources # in this sectiones we need to give the configurations of the AWS Services
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCidr
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: TestProdVpc
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: TestProdIGW
+
+  InternetGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId: !Ref InternetGateway
+      VpcId: !Ref VPC
+
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [0, !Ref AvailabilityZones]
+      CidrBlock: !Ref PublicSubnetCidr
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: TestProdPublicSubnet
+
+  PrivateSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [0, !Ref AvailabilityZones]
+      CidrBlock: !Ref PrivateSubnetCidr
+      Tags:
+        - Key: Name
+          Value: TestProdPrivateSubnet
+
+  DBSubnet:
+    Type: AWS::EC2::Subnet
+    Condition: CreatePrivateDBSubnetCondition
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [0, !Ref AvailabilityZones]
+      CidrBlock: "10.0.2.0/24" # Example CIDR block for the DB subnet
+      Tags:
+        - Key: Name
+          Value: TestProdDBSubnet
+
+  RouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      RouteTableId: !Ref RouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet
+      RouteTableId: !Ref RouteTable
+
+  PrivateSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet
+      RouteTableId: !Ref RouteTable
+
+  DBSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Condition: CreatePrivateDBSubnetCondition
+    Properties:
+      SubnetId: !Ref DBSubnet
+      RouteTableId: !Ref RouteTable

@@ -1,0 +1,299 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "Parent CloudFormation Template to create VPC, ASG with ALB or Standalone EC2, and RDS DB instance"
+
+Parameters:
+  # VPC Parameters
+  VpcCIDRProd:
+    Type: String
+    Default: "10.0.0.0/16"
+    Description: "CIDR block for the VPC"
+
+  AvailabilityZonesProd:
+    Type: List<AWS::EC2::AvailabilityZone::Name>
+    Description: Select the Availability Zones for the subnets
+
+  NumAZsProd:
+    Type: Number
+    Description: Number of Availability Zones for subnet creation
+    Default: 1
+    AllowedValues:
+      - 1
+      - 2
+      - 3
+
+  CreatePrivateDatabaseSubnetProd:
+    Type: String
+    Default: "yes"
+    Description: Whether to create a private database subnet (Yes/No)
+    AllowedValues:
+      - "yes"
+      - "no"
+
+  PublicSubnet1CIDRProd:
+    Type: String
+    Default: "10.0.1.0/24"
+    Description: "CIDR block for the first public subnet"
+
+  PublicSubnet2CIDRProd:
+    Type: String
+    Default: "10.0.2.0/24"
+    Description: "CIDR block for the second public subnet"
+
+  PublicSubnet3CIDRProd:
+    Type: String
+    Default: "10.0.3.0/24"
+    Description: "CIDR block for the third public subnet"
+
+  PrivateSubnet1CIDRProd:
+    Type: String
+    Default: "10.0.4.0/24"
+    Description: "CIDR block for the first private subnet"
+
+  PrivateSubnet2CIDRProd:
+    Type: String
+    Default: "10.0.5.0/24"
+    Description: "CIDR block for the second private subnet"
+
+  PrivateSubnet3CIDRProd:
+    Type: String
+    Default: "10.0.6.0/24"
+    Description: "CIDR block for the third private subnet"
+
+  PrivateDBSubnet1CIDRProd:
+    Type: String
+    Default: "10.0.7.0/24"
+    Description: "CIDR block for the first private database subnet"
+
+  PrivateDBSubnet2CIDRProd:
+    Type: String
+    Default: "10.0.8.0/24"
+    Description: "CIDR block for the second private database subnet"
+
+  PrivateDBSubnet3CIDRProd:
+    Type: String
+    Default: "10.0.9.0/24"
+    Description: "CIDR block for the third private database subnet"
+
+  # ALB Parameters
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: Enter the name of an existing EC2 KeyPair for SSH access
+
+  InstanceType:
+    Type: String
+    Description: "Instance type for EC2 instances"
+    Default: "t2.micro"
+    AllowedValues:
+      - "t2.micro"
+      - "t2.small"
+      - "t2.medium"
+
+  StandaloneOrASG:
+    Type: String
+    Description: "Choose whether to create a Standalone EC2 instance or an Auto Scaling Group (ASG) with a Load balancer"
+    AllowedValues:
+      - "Standalone"
+      - "ASG"
+
+  VPCId:
+    Type: AWS::EC2::VPC::Id
+    Description: "Select the VPC where the resources will be created"
+
+  SubnetType:
+    Type: String
+    Description: "Select the type of subnet where the resources will be deployed"
+    Default: "Public"
+    AllowedValues:
+      - "Public"
+      - "Private"
+
+  PublicSubnets:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: "Select the public subnets for the resources"
+
+  PrivateSubnets:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: "Select the private subnets for the resources"
+
+  AMIId:
+    Type: AWS::EC2::Image::Id
+    Description: "Enter the AMI ID to be used for the EC2 instances"
+    Default: "ami-06c68f701d8090592"
+
+  VolumeSize:
+    Type: Number
+    Description: "Enter the size of the volume in GiB"
+    Default: 8
+
+  VolumeType:
+    Type: String
+    Description: "Select the type of volume for EC2 as well as Template Group"
+    Default: "gp3"
+    AllowedValues:
+      - "gp3"
+      - "gp2"
+      - "io1"
+      - "io2"
+      - "sc1"
+      - "st1"
+
+  # DB Parameters
+  DBEngine:
+    Type: String
+    Description: "Database engine to be used"
+    AllowedValues:
+      - mysql
+      - postgres
+      - mariadb
+    Default: mysql
+
+  MySQLVersion:
+    Type: String
+    Description: "MySQL version"
+    AllowedValues:
+      - "8.0.35"
+      - "5.7.32"
+      - "5.6.51"
+    Default: "8.0.35"
+
+  PostgreSQLVersion:
+    Type: String
+    Description: "PostgreSQL version"
+    AllowedValues:
+      - "16.2"
+      - "16.3"
+    Default: "16.2"
+
+  MariaDBVersion:
+    Type: String
+    Description: "MariaDB version"
+    AllowedValues:
+      - "10.11.6"
+      - "10.11.7"
+    Default: "10.11.6"
+
+  CredentialMethod:
+    Type: String
+    Description: "Method to provide database credentials"
+    AllowedValues:
+      - UsernamePassword
+      - SecretsManager
+    Default: UsernamePassword
+
+  DBUsername:
+    Type: String
+    Description: "Master username for the DB instance (required for both methods)"
+    Default: "DbTestSql"
+
+  DBPassword:
+    Type: String
+    Description: "Master password for the DB instance (required if using UsernamePassword method)"
+    NoEcho: true
+    Default: "RdsSql@123"
+
+  DBInstanceClass:
+    Description: "The RDS instance type"
+    Type: String
+    Default: db.t3.micro
+    AllowedValues:
+      - db.t3.micro
+      - db.t3.small
+      - db.t3.medium
+
+  SubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: "Select at least 2 private subnets from 2 different Availability Zones"
+
+Resources:
+  VPCStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: "https://buckets3nsted23.s3.ap-south-1.amazonaws.com/VPC_nested.yaml"
+      Parameters:
+        VpcCIDRProd: "10.0.0.0/16"
+        AvailabilityZonesProd: !Ref AvailabilityZones
+        NumAZsProd: 3
+        CreatePrivateDatabaseSubnetProd: "yes"
+        PublicSubnet1CIDRProd: "10.0.1.0/24"
+        PublicSubnet2CIDRProd: "10.0.2.0/24"
+        PublicSubnet3CIDRProd: "10.0.3.0/24"
+        PrivateSubnet1CIDRProd: "10.0.4.0/24"
+        PrivateSubnet2CIDRProd: "10.0.5.0/24"
+        PrivateSubnet3CIDRProd: "10.0.6.0/24"
+        PrivateDBSubnet1CIDRProd: "10.0.7.0/24"
+        PrivateDBSubnet2CIDRProd: "10.0.8.0/24"
+        PrivateDBSubnet3CIDRProd: "10.0.9.0/24"
+
+Outputs:
+  VpcId:
+    Description: "VPC ID"
+    Value: !ImportValue
+      Fn::Sub: "${VpcStackName}-VpcId"
+
+  PublicSubnet1Id:
+    Description: "Public Subnet 1 ID"
+    Value: !ImportValue
+      Fn::Sub: "${VpcStackName}-PublicSubnet1Id"
+
+  PublicSubnet2Id:
+    Description: "Public Subnet 2 ID"
+    Value: !ImportValue
+      Fn::Sub: "${VpcStackName}-PublicSubnet2Id"
+
+  PublicSubnet3Id:
+    Description: "Public Subnet 3 ID"
+    Value: !ImportValue
+      Fn::Sub: "${VpcStackName}-PublicSubnet3Id"
+
+  PrivateSubnet1Id:
+    Description: "Private Subnet 1 ID"
+    Value: !ImportValue
+      Fn::Sub: "${VpcStackName}-PrivateSubnet1Id"
+
+  PrivateSubnet2Id:
+    Description: "Private Subnet 2 ID"
+    Value: !ImportValue
+      Fn::Sub: "${VpcStackName}-PrivateSubnet2Id"
+
+  PrivateSubnet3Id:
+    Description: "Private Subnet 3 ID"
+    Value: !ImportValue
+      Fn::Sub: "${VpcStackName}-PrivateSubnet3Id"
+
+  PrivateDBSubnet1Id:
+    Description: "Private DB Subnet 1 ID"
+    Value: !ImportValue
+      Fn::Sub: "${VpcStackName}-PrivateDBSubnet1Id"
+
+  PrivateDBSubnet2Id:
+    Description: "Private DB Subnet 2 ID"
+    Value: !ImportValue
+      Fn::Sub: "${VpcStackName}-PrivateDBSubnet2Id"
+
+  PrivateDBSubnet3Id:
+    Description: "Private DB Subnet 3 ID"
+    Value: !ImportValue
+      Fn::Sub: "${VpcStackName}-PrivateDBSubnet3Id"
+
+AutoScalingGroup:
+  Type: AWS::CloudFormation::Stack
+  Properties:
+    TemplateURL: "https://buckets3nsted23.s3.ap-south-1.amazonaws.com/ALb_nested.yaml"
+    Parameters:
+      VpcId: !ImportValue "${VpcStackName}-VpcId"
+      PublicSubnet1Id: !ImportValue "${VpcStackName}-PublicSubnet1Id"
+      PublicSubnet2Id: !ImportValue "${VpcStackName}-PublicSubnet2Id"
+      PublicSubnet3Id: !ImportValue "${VpcStackName}-PublicSubnet3Id"
+      PrivateSubnet1Id: !ImportValue "${VpcStackName}-PrivateSubnet1Id"
+      PrivateSubnet2Id: !ImportValue "${VpcStackName}-PrivateSubnet2Id"
+      PrivateSubnet3Id: !ImportValue "${VpcStackName}-PrivateSubnet3Id"
+
+RDSInstance:
+  Type: AWS::CloudFormation::Stack
+  Properties:
+    TemplateURL: "https://buckets3nsted23.s3.ap-south-1.amazonaws.com/RDS_DB_Nested.yaml"
+    Parameters:
+      VpcId: !ImportValue "${VpcStackName}-VpcId"
+      PrivateDBSubnet1Id: !ImportValue "${VpcStackName}-PrivateDBSubnet1Id"
+      PrivateDBSubnet2Id: !ImportValue "${VpcStackName}-PrivateDBSubnet2Id"
+      PrivateDBSubnet3Id: !ImportValue "${VpcStackName}-PrivateDBSubnet3Id"

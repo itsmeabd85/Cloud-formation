@@ -1,0 +1,64 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "Parent Stack for creating resources in VPC"
+
+Parameters:
+  VpcStackName:
+    Type: String
+    Description: "Name of the VPC Stack"
+  AvailabilityZones:
+    Type: List<AWS::EC2::AvailabilityZone::Name>
+    Description: "Select the Availability Zones for the subnets"
+
+Resources:
+  VPCStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: "URL_to_VPC_Child_Template"
+      Parameters:
+        VpcCIDRProd: "10.0.0.0/16"
+        AvailabilityZonesProd: !Ref AvailabilityZones
+        NumAZsProd: 3
+        CreatePrivateDatabaseSubnetProd: "yes"
+        PublicSubnet1CIDRProd: "10.0.1.0/24"
+        PublicSubnet2CIDRProd: "10.0.2.0/24"
+        PublicSubnet3CIDRProd: "10.0.3.0/24"
+        PrivateSubnet1CIDRProd: "10.0.4.0/24"
+        PrivateSubnet2CIDRProd: "10.0.5.0/24"
+        PrivateSubnet3CIDRProd: "10.0.6.0/24"
+        PrivateDBSubnet1CIDRProd: "10.0.7.0/24"
+        PrivateDBSubnet2CIDRProd: "10.0.8.0/24"
+        PrivateDBSubnet3CIDRProd: "10.0.9.0/24"
+
+  AutoScalingGroup:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: "URL_to_AutoScalingGroup_Child_Template"
+      Parameters:
+        VpcId: !ImportValue
+          Fn::Sub: "${VpcStackName}-VpcId"
+        PublicSubnet1Id: !ImportValue
+          Fn::Sub: "${VpcStackName}-PublicSubnet1Id"
+        PublicSubnet2Id: !ImportValue
+          Fn::Sub: "${VpcStackName}-PublicSubnet2Id"
+        PublicSubnet3Id: !ImportValue
+          Fn::Sub: "${VpcStackName}-PublicSubnet3Id"
+        PrivateSubnet1Id: !ImportValue
+          Fn::Sub: "${VpcStackName}-PrivateSubnet1Id"
+        PrivateSubnet2Id: !ImportValue
+          Fn::Sub: "${VpcStackName}-PrivateSubnet2Id"
+        PrivateSubnet3Id: !ImportValue
+          Fn::Sub: "${VpcStackName}-PrivateSubnet3Id"
+
+  RDSInstance:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: "URL_to_RDS_Child_Template"
+      Parameters:
+        VpcId: !ImportValue
+          Fn::Sub: "${VpcStackName}-VpcId"
+        PrivateDBSubnet1Id: !ImportValue
+          Fn::Sub: "${VpcStackName}-PrivateDBSubnet1Id"
+        PrivateDBSubnet2Id: !ImportValue
+          Fn::Sub: "${VpcStackName}-PrivateDBSubnet2Id"
+        PrivateDBSubnet3Id: !ImportValue
+          Fn::Sub: "${VpcStackName}-PrivateDBSubnet3Id"

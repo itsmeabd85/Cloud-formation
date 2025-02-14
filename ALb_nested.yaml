@@ -1,0 +1,212 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "Creating an Auto Scaling Group (ASG) with an Application Load Balancer (ALB) or a standalone EC2 instance in an existing VPC"
+
+Parameters:
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: Enter the name of an existing EC2 KeyPair for SSH access
+
+  InstanceType:
+    Type: String
+    Description: "Instance type for EC2 instances"
+    Default: "t2.micro"
+    AllowedValues:
+      - "t2.micro"
+      - "t2.small"
+      - "t2.medium"
+
+  StandaloneOrASG:
+    Type: String
+    Description: "Choose whether to create a Standalone EC2 instance or an Auto Scaling Group (ASG) with a Load balancer"
+    AllowedValues:
+      - "Standalone"
+      - "ASG"
+
+  VPCId:
+    Type: AWS::EC2::VPC::Id
+    Description: "Select the VPC where the resources will be created"
+
+  SubnetType:
+    Type: String
+    Description: "Select the type of subnet where the resources will be deployed"
+    Default: "Public"
+    AllowedValues:
+      - "Public"
+      - "Private"
+
+  PublicSubnets:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: "Select the public subnets for the resources"
+
+  PrivateSubnets:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: "Select the private subnets for the resources"
+
+  AMIId:
+    Type: AWS::EC2::Image::Id
+    Description: "Enter the AMI ID to be used for the EC2 instances"
+    Default: "ami-06c68f701d8090592"
+
+  VolumeSize:
+    Type: Number
+    Description: "Enter the size of the volume in GiB"
+    Default: 8
+
+  VolumeType:
+    Type: String
+    Description: "Select the type of volume for EC2 as well as Template Group"
+    Default: "gp3"
+    AllowedValues:
+      - "gp3"
+      - "gp2"
+      - "io1"
+      - "io2"
+      - "sc1"
+      - "st1"
+
+Conditions:
+  CreateStandaloneInstance: !Equals [!Ref StandaloneOrASG, "Standalone"]
+  CreateASG: !Equals [!Ref StandaloneOrASG, "ASG"]
+  IsPublic: !Equals [!Ref SubnetType, "Public"]
+  IsPrivate: !Not [!Equals [!Ref SubnetType, "Public"]]
+
+Resources:
+  SGForInstance:
+    Type: AWS::EC2::SecurityGroup
+    Condition: CreateStandaloneInstance
+    Properties:
+      GroupDescription: Allow inbound traffic for standalone instance
+      VpcId: !Ref VPCId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+
+  EC2Instance:
+    Type: AWS::EC2::Instance
+    Condition: CreateStandaloneInstance
+    Properties:
+      InstanceType: !Ref InstanceType
+      ImageId: !Ref AMIId
+      KeyName: !Ref KeyName
+      SubnetId:
+        !Select [0, !If [IsPublic, !Ref PublicSubnets, !Ref PrivateSubnets]]
+      SecurityGroupIds: [!Ref SGForInstance]
+      BlockDeviceMappings:
+        - DeviceName: "/dev/xvda"
+          Ebs:
+            VolumeSize: !Ref VolumeSize
+            VolumeType: !Ref VolumeType
+      Tags:
+        - Key: "Name"
+          Value: "CFN_Prod_Linux_EC2"
+
+  SGForASGInstances:
+    Type: AWS::EC2::SecurityGroup
+    Condition: CreateASG
+    Properties:
+      GroupDescription: Allow inbound traffic for ASG instances
+      VpcId: !Ref VPCId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+
+  CFNProdLaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Condition: CreateASG
+    Properties:
+      LaunchTemplateName: CFNProdLaunchTemplate
+      LaunchTemplateData:
+        InstanceType: !Ref InstanceType
+        KeyName: !Ref KeyName
+        ImageId: !Ref AMIId
+        SecurityGroupIds: [!Ref SGForASGInstances]
+        BlockDeviceMappings:
+          - DeviceName: "/dev/xvda"
+            Ebs:
+              VolumeSize: !Ref VolumeSize
+              VolumeType: !Ref VolumeType
+        UserData: !Base64 |
+          Fn::Base64: !Sub |
+            #!/bin/bash -xe
+            yum update -y
+            yum install -y nginx
+            systemctl start nginx
+            systemctl enable nginx
+
+  ALBTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Condition: CreateASG
+    Properties:
+      VpcId: !Ref VPCId
+      Port: 80
+      Protocol: HTTP
+      TargetType: instance
+      HealthCheckProtocol: HTTP
+      HealthCheckPort: 80
+      HealthCheckPath: /
+      Matcher:
+        HttpCode: 200
+      Name: "CFNProdTargetGroup"
+
+  SGForALB:
+    Type: AWS::EC2::SecurityGroup
+    Condition: CreateASG
+    Properties:
+      GroupDescription: Allow inbound HTTP traffic to ALB
+      VpcId: !Ref VPCId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+
+  ALB:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Condition: CreateASG
+    Properties:
+      Name: "CFNProdALB"
+      Scheme: internet-facing
+      Subnets: !If [IsPublic, !Ref PublicSubnets, !Ref PrivateSubnets]
+      SecurityGroups: [!Ref SGForALB]
+
+  ALBListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Condition: CreateASG
+    Properties:
+      LoadBalancerArn: !Ref ALB
+      Protocol: HTTP
+      Port: 80
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref ALBTargetGroup
+
+  ProdAutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Condition: CreateASG
+    Properties:
+      LaunchTemplate:
+        LaunchTemplateId: !Ref CFNProdLaunchTemplate
+        Version: !GetAtt CFNProdLaunchTemplate.LatestVersionNumber
+      MinSize: 1
+      MaxSize: 3
+      DesiredCapacity: 2
+      VPCZoneIdentifier: !If [IsPublic, !Ref PublicSubnets, !Ref PrivateSubnets]
+      TargetGroupARNs:
+        - !Ref ALBTargetGroup
+
+Outputs:
+  EC2InstanceId:
+    Description: "EC2 Instance ID (if standalone instance is created)"
+    Value:
+      !If [
+        CreateStandaloneInstance,
+        !Ref EC2Instance,
+        "No standalone instance created",
+      ]
+  ASG:
+    Description: "Auto Scaling Group Name (if ASG is created)"
+    Value: !If [CreateASG, !Ref ProdAutoScalingGroup, "No ASG created"]

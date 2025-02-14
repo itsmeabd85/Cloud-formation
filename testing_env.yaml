@@ -1,0 +1,275 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "AWS CloudFormation Template for creating VPC and more options like subnets in VPC"
+
+Parameters:
+  VpcCIDR:
+    Type: String
+    Default: "10.0.0.0/16"
+    Description: "Enter the VPC CidrBlock"
+
+  AvailabilityZones:
+    Type: List<AWS::EC2::AvailabilityZone::Name>
+    Description: "How many NumAZs you need"
+
+  NumAZs:
+    Type: Number
+    Description: "Number of Availability Zones for subnet creation"
+    Default: 1
+    AllowedValues:
+      - 1
+      - 2
+      - 3
+
+  CreatePrivateDatabaseSubnet:
+    Type: String
+    Default: "yes"
+    Description: "Whether you want to create DB subnet (Yes/No)"
+    AllowedValues:
+      - "yes"
+      - "no"
+
+  PublicSubnet1CIDR:
+    Type: String
+    Default: "10.0.1.0/24"
+    Description: "CIDR block for the first public subnet"
+  PublicSubnet2CIDR:
+    Type: String
+    Default: "10.0.2.0/24"
+    Description: "CIDR block for the second public subnet"
+  PublicSubnet3CIDR:
+    Type: String
+    Default: "10.0.3.0/24"
+    Description: "CIDR block for the third public subnet"
+
+  PrivateSubnet1CIDR:
+    Type: String
+    Default: "10.0.4.0/24"
+    Description: "CIDR block for the first private subnet"
+  PrivateSubnet2CIDR:
+    Type: String
+    Default: "10.0.5.0/24"
+    Description: "CIDR block for the second private subnet"
+  PrivateSubnet3CIDR:
+    Type: String
+    Default: "10.0.6.0/24"
+    Description: "CIDR block for the third private subnet"
+
+  PrivateDBSubnet1CIDR:
+    Type: String
+    Default: "10.0.7.0/24"
+    Description: "CIDR block for the first private database subnet"
+  PrivateDBSubnet2CIDR:
+    Type: String
+    Default: "10.0.8.0/24"
+    Description: "CIDR block for the second private database subnet"
+  PrivateDBSubnet3CIDR:
+    Type: String
+    Default: "10.0.9.0/24"
+    Description: "CIDR block for the third private database subnet"
+
+Conditions:
+  IfSelectedSingleAZ: !Equals [!Ref NumAZs, 1]
+  IfSelectedDoubleAZ: !Equals [!Ref NumAZs, 2]
+  IfTripleAZSelected: !Equals [!Ref NumAZs, 3]
+  IfDoubleORThree:
+    Fn::Or:
+      - !Equals [!Ref NumAZs, 2]
+      - !Equals [!Ref NumAZs, 3]
+  CreatePrivateDBSubnet: !Equals [!Ref CreatePrivateDatabaseSubnet, "yes"]
+
+Resources:
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCIDR
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: "Name"
+          Value: "CFN_Prod_VPC"
+
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [0, !Ref AvailabilityZones]
+      CidrBlock: !Ref PublicSubnet1CIDR
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: "Name"
+          Value: "CFN_Prod_PublicSubnet1"
+
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Condition: IfDoubleORThree
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [1, !Ref AvailabilityZones]
+      CidrBlock: !Ref PublicSubnet2CIDR
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: "Name"
+          Value: "CFN_Prod_PublicSubnet2"
+
+  PublicSubnet3:
+    Type: AWS::EC2::Subnet
+    Condition: IfTripleAZSelected
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [2, !Ref AvailabilityZones]
+      CidrBlock: !Ref PublicSubnet3CIDR
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: "Name"
+          Value: "CFN_Prod_PublicSubnet3"
+
+  PrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [0, !Ref AvailabilityZones]
+      CidrBlock: !Ref PrivateSubnet1CIDR
+      Tags:
+        - Key: "Name"
+          Value: "CFN_Prod_PrivateSubnet1"
+
+  PrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Condition: IfDoubleORThree
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [1, !Ref AvailabilityZones]
+      CidrBlock: !Ref PrivateSubnet2CIDR
+      Tags:
+        - Key: "Name"
+          Value: "CFN_Prod_PrivateSubnet2"
+
+  PrivateSubnet3:
+    Type: AWS::EC2::Subnet
+    Condition: IfTripleAZSelected
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [2, !Ref AvailabilityZones]
+      CidrBlock: !Ref PrivateSubnet3CIDR
+      Tags:
+        - Key: "Name"
+          Value: "CFN_Prod_PrivateSubnet3"
+
+  PrivateDBSubnet1:
+    Type: AWS::EC2::Subnet
+    Condition: CreatePrivateDBSubnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [0, !Ref AvailabilityZones]
+      CidrBlock: !Ref PrivateDBSubnet1CIDR
+      Tags:
+        - Key: "Name"
+          Value: "CFN_Prod_PrivateDBSubnet1"
+
+  PrivateDBSubnet2:
+    Type: AWS::EC2::Subnet
+    Condition: CreatePrivateDBSubnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [1, !Ref AvailabilityZones]
+      CidrBlock: !Ref PrivateDBSubnet2CIDR
+      Tags:
+        - Key: "Name"
+          Value: "CFN_Prod_PrivateDBSubnet2"
+
+  PrivateDBSubnet3:
+    Type: AWS::EC2::Subnet
+    Condition: CreatePrivateDBSubnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [2, !Ref AvailabilityZones]
+      CidrBlock: !Ref PrivateDBSubnet3CIDR
+      Tags:
+        - Key: "Name"
+          Value: "CFN_Prod_PrivateDBSubnet3"
+
+  # Create Public Route Tables
+  PublicRouteTable1:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: "Name"
+          Value: "CFN-Prod-Public-Route-Table-1"
+
+  PublicRouteToInternet1:
+    Type: AWS::EC2::Route
+    DependsOn: AttachGateway
+    Properties:
+      RouteTableId: !Ref PublicRouteTable1
+      DestinationCidrBlock: "0.0.0.0/0"
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet1
+      RouteTableId: !Ref PublicRouteTable1
+
+  PublicRouteTable2:
+    Type: AWS::EC2::RouteTable
+    Condition: IfDoubleORThree
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: "Name"
+          Value: "CFN-Prod-Public-Route-Table-2"
+
+  PublicRouteToInternet2:
+    Type: AWS::EC2::Route
+    DependsOn: AttachGateway
+    Condition: IfDoubleORThree
+    Properties:
+      RouteTableId: !Ref PublicRouteTable2
+      DestinationCidrBlock: "0.0.0.0/0"
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Condition: IfDoubleORThree
+    Properties:
+      SubnetId: !Ref PublicSubnet2
+      RouteTableId: !Ref PublicRouteTable2
+
+  PublicRouteTable3:
+    Type: AWS::EC2::RouteTable
+    Condition: IfTripleAZSelected
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: "Name"
+          Value: "CFN-Prod-Public-Route-Table-3"
+
+  PublicRouteToInternet3:
+    Type: AWS::EC2::Route
+    DependsOn: AttachGateway
+    Condition: IfTripleAZSelected
+    Properties:
+      RouteTableId: !Ref PublicRouteTable3
+      DestinationCidrBlock: "0.0.0.0/0"
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnet3RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Condition: IfTripleAZSelected
+    Properties:
+      SubnetId: !Ref PublicSubnet3
+      RouteTableId: !Ref PublicRouteTable3
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: "Name"
+          Value: "CFN_Prod_InternetGateway"
+
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway

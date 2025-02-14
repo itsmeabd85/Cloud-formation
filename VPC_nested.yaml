@@ -1,0 +1,382 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "Cloud Formation for creating the VPC Configuration"
+
+Parameters:
+  VpcCIDRProd:
+    Type: String
+    Default: "10.0.0.0/16"
+    Description: "CIDR block for the VPC"
+
+  AvailabilityZonesProd:
+    Type: List<AWS::EC2::AvailabilityZone::Name>
+    Description: Select the Availability Zones for the subnets
+
+  NumAZsProd:
+    Type: Number
+    Description: Number of Availability Zones for subnet creation
+    Default: 1
+    AllowedValues:
+      - 1
+      - 2
+      - 3
+
+  CreatePrivateDatabaseSubnetProd:
+    Type: String
+    Default: "yes"
+    Description: Whether to create a private database subnet (Yes/No)
+    AllowedValues:
+      - "yes"
+      - "no"
+
+  PublicSubnet1CIDRProd:
+    Type: String
+    Default: "10.0.1.0/24"
+    Description: "CIDR block for the first public subnet"
+
+  PublicSubnet2CIDRProd:
+    Type: String
+    Default: "10.0.2.0/24"
+    Description: "CIDR block for the second public subnet"
+
+  PublicSubnet3CIDRProd:
+    Type: String
+    Default: "10.0.3.0/24"
+    Description: "CIDR block for the third public subnet"
+
+  PrivateSubnet1CIDRProd:
+    Type: String
+    Default: "10.0.4.0/24"
+    Description: "CIDR block for the first private subnet"
+
+  PrivateSubnet2CIDRProd:
+    Type: String
+    Default: "10.0.5.0/24"
+    Description: "CIDR block for the second private subnet"
+
+  PrivateSubnet3CIDRProd:
+    Type: String
+    Default: "10.0.6.0/24"
+    Description: "CIDR block for the third private subnet"
+
+  PrivateDBSubnet1CIDRProd:
+    Type: String
+    Default: "10.0.7.0/24"
+    Description: "CIDR block for the first private database subnet"
+
+  PrivateDBSubnet2CIDRProd:
+    Type: String
+    Default: "10.0.8.0/24"
+    Description: "CIDR block for the second private database subnet"
+
+  PrivateDBSubnet3CIDRProd:
+    Type: String
+    Default: "10.0.9.0/24"
+    Description: "CIDR block for the third private database subnet"
+
+Conditions:
+  SingleAZSelectedProd: !Equals [!Ref NumAZsProd, 1]
+  DoubleAZSelectedProd: !Equals [!Ref NumAZsProd, 2]
+  TripleAZSelectedProd: !Equals [!Ref NumAZsProd, 3]
+  OrDoubleTripleAZSelectedProd:
+    Fn::Or:
+      - Condition: DoubleAZSelectedProd
+      - Condition: TripleAZSelectedProd
+
+  CreatePrivateDBSubnetProd:
+    !Equals [!Ref CreatePrivateDatabaseSubnetProd, "yes"]
+  CreatePrivateDBSubnetAndSingleAZSelectedProd: !And
+    - Condition: CreatePrivateDBSubnetProd
+    - Condition: SingleAZSelectedProd
+  CreatePrivateDBSubnetAndDoubleAZSelectedProd: !And
+    - Condition: CreatePrivateDBSubnetProd
+    - Condition: DoubleAZSelectedProd
+  CreatePrivateDBSubnetAndTripleAZSelectedProd: !And
+    - Condition: CreatePrivateDBSubnetProd
+    - Condition: TripleAZSelectedProd
+  CreatePrivateDBSubnetAndMultipleAZsSelectedProd: !Or
+    - Condition: CreatePrivateDBSubnetAndDoubleAZSelectedProd
+    - Condition: CreatePrivateDBSubnetAndTripleAZSelectedProd
+
+Resources:
+  VPCProd:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCIDRProd
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: "Name"
+          Value: "CFT-Prod-VPC"
+
+  InternetGatewayProd:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: "Name"
+          Value: "CFT-Prod-Internet-Gateway"
+
+  AttachGatewayProd:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPCProd
+      InternetGatewayId: !Ref InternetGatewayProd
+
+  PublicSubnet1Prod:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPCProd
+      AvailabilityZone: !Select [0, !Ref AvailabilityZonesProd]
+      CidrBlock: !Ref PublicSubnet1CIDRProd
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: "Name"
+          Value: "CFT-Prod-Public-Subnet-1"
+
+  PublicSubnet2Prod:
+    Type: AWS::EC2::Subnet
+    Condition: OrDoubleTripleAZSelectedProd
+    Properties:
+      VpcId: !Ref VPCProd
+      AvailabilityZone: !Select [1, !Ref AvailabilityZonesProd]
+      CidrBlock:
+        !If [
+          OrDoubleTripleAZSelectedProd,
+          !Ref PublicSubnet2CIDRProd,
+          !Ref AWS::NoValue,
+        ]
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: "Name"
+          Value: "CFT-Prod-Public-Subnet-2"
+
+  PublicSubnet3Prod:
+    Type: AWS::EC2::Subnet
+    Condition: TripleAZSelectedProd
+    Properties:
+      VpcId: !Ref VPCProd
+      AvailabilityZone: !Select [2, !Ref AvailabilityZonesProd]
+      CidrBlock:
+        !If [
+          TripleAZSelectedProd,
+          !Ref PublicSubnet3CIDRProd,
+          !Ref AWS::NoValue,
+        ]
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: "Name"
+          Value: "CFT-Prod-Public-Subnet-3"
+
+  PrivateSubnet1Prod:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPCProd
+      AvailabilityZone: !Select [0, !Ref AvailabilityZonesProd]
+      CidrBlock: !Ref PrivateSubnet1CIDRProd
+      Tags:
+        - Key: "Name"
+          Value: "CFT-Prod-Private-Subnet-1"
+
+  PrivateSubnet2Prod:
+    Type: AWS::EC2::Subnet
+    Condition: OrDoubleTripleAZSelectedProd
+    Properties:
+      VpcId: !Ref VPCProd
+      AvailabilityZone: !Select [1, !Ref AvailabilityZonesProd]
+      CidrBlock:
+        !If [
+          OrDoubleTripleAZSelectedProd,
+          !Ref PrivateSubnet2CIDRProd,
+          !Ref AWS::NoValue,
+        ]
+      Tags:
+        - Key: "Name"
+          Value: "CFT-Prod-Private-Subnet-2"
+
+  PrivateSubnet3Prod:
+    Type: AWS::EC2::Subnet
+    Condition: TripleAZSelectedProd
+    Properties:
+      VpcId: !Ref VPCProd
+      AvailabilityZone: !Select [2, !Ref AvailabilityZonesProd]
+      CidrBlock:
+        !If [
+          TripleAZSelectedProd,
+          !Ref PrivateSubnet3CIDRProd,
+          !Ref AWS::NoValue,
+        ]
+      Tags:
+        - Key: "Name"
+          Value: "CFT-Prod-Private-Subnet-3"
+
+  PrivateDBSubnet1Prod:
+    Type: AWS::EC2::Subnet
+    Condition: CreatePrivateDBSubnetProd
+    Properties:
+      VpcId: !Ref VPCProd
+      AvailabilityZone: !Select [0, !Ref AvailabilityZonesProd]
+      CidrBlock:
+        !If [
+          CreatePrivateDBSubnetProd,
+          !Ref PrivateDBSubnet1CIDRProd,
+          !Ref AWS::NoValue,
+        ]
+      Tags:
+        - Key: "Name"
+          Value: "CFT-Prod-Private-DBSubnet-1"
+
+  PrivateDBSubnet2Prod:
+    Type: AWS::EC2::Subnet
+    Condition: CreatePrivateDBSubnetAndMultipleAZsSelectedProd
+    Properties:
+      VpcId: !Ref VPCProd
+      AvailabilityZone: !Select [1, !Ref AvailabilityZonesProd]
+      CidrBlock:
+        !If [
+          CreatePrivateDBSubnetAndMultipleAZsSelectedProd,
+          !Ref PrivateDBSubnet2CIDRProd,
+          !Ref AWS::NoValue,
+        ]
+      Tags:
+        - Key: "Name"
+          Value: "CFT-Prod-Private-DBSubnet-2"
+
+  PrivateDBSubnet3Prod:
+    Type: AWS::EC2::Subnet
+    Condition: CreatePrivateDBSubnetAndTripleAZSelectedProd
+    Properties:
+      VpcId: !Ref VPCProd
+      AvailabilityZone: !Select [2, !Ref AvailabilityZonesProd]
+      CidrBlock:
+        !If [
+          CreatePrivateDBSubnetAndTripleAZSelectedProd,
+          !Ref PrivateDBSubnet3CIDRProd,
+          !Ref AWS::NoValue,
+        ]
+      Tags:
+        - Key: "Name"
+          Value: "CFT-Prod-Private-DBSubnet-3"
+
+  PublicRouteTableProd:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPCProd
+      Tags:
+        - Key: "Name"
+          Value: "CFT-Prod-Public-Route-Table"
+
+  PublicRouteProd:
+    Type: AWS::EC2::Route
+    DependsOn: AttachGatewayProd
+    Properties:
+      RouteTableId: !Ref PublicRouteTableProd
+      DestinationCidrBlock: "0.0.0.0/0"
+      GatewayId: !Ref InternetGatewayProd
+
+  PublicSubnet1RouteTableAssociationProd:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet1Prod
+      RouteTableId: !Ref PublicRouteTableProd
+
+  PublicSubnet2RouteTableAssociationProd:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Condition: OrDoubleTripleAZSelectedProd
+    Properties:
+      SubnetId:
+        !If [
+          OrDoubleTripleAZSelectedProd,
+          !Ref PublicSubnet2Prod,
+          !Ref AWS::NoValue,
+        ]
+      RouteTableId:
+        !If [
+          OrDoubleTripleAZSelectedProd,
+          !Ref PublicRouteTableProd,
+          !Ref AWS::NoValue,
+        ]
+
+  PublicSubnet3RouteTableAssociationProd:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Condition: TripleAZSelectedProd
+    Properties:
+      SubnetId:
+        !If [
+          TripleAZSelectedProd,
+          !Ref PublicSubnet3Prod,
+          !Ref AWS::NoValue,
+        ]
+      RouteTableId:
+        !If [
+          TripleAZSelectedProd,
+          !Ref PublicRouteTableProd,
+          !Ref AWS::NoValue,
+        ]
+
+Outputs:
+  VpcId:
+    Description: "VPC ID"
+    Value: !Ref VPCProd
+    Export:
+      Name: !Sub "${AWS::StackName}-VpcId"
+
+  PublicSubnet1Id:
+    Description: "Public Subnet 1 ID"
+    Value: !Ref PublicSubnet1Prod
+    Export:
+      Name: !Sub "${AWS::StackName}-PublicSubnet1Id"
+
+  PublicSubnet2Id:
+    Description: "Public Subnet 2 ID"
+    Condition: OrDoubleTripleAZSelectedProd
+    Value: !If [OrDoubleTripleAZSelectedProd, !Ref PublicSubnet2Prod, !Ref AWS::NoValue]
+    Export:
+      Name: !If [OrDoubleTripleAZSelectedProd, !Sub "${AWS::StackName}-PublicSubnet2Id", !Ref AWS::NoValue]
+
+  PublicSubnet3Id:
+    Description: "Public Subnet 3 ID"
+    Condition: TripleAZSelectedProd
+    Value: !If [TripleAZSelectedProd, !Ref PublicSubnet3Prod, !Ref AWS::NoValue]
+    Export:
+      Name: !If [TripleAZSelectedProd, !Sub "${AWS::StackName}-PublicSubnet3Id", !Ref AWS::NoValue]
+
+  PrivateSubnet1Id:
+    Description: "Private Subnet 1 ID"
+    Value: !Ref PrivateSubnet1Prod
+    Export:
+      Name: !Sub "${AWS::StackName}-PrivateSubnet1Id"
+
+  PrivateSubnet2Id:
+    Description: "Private Subnet 2 ID"
+    Condition: OrDoubleTripleAZSelectedProd
+    Value: !If [OrDoubleTripleAZSelectedProd, !Ref PrivateSubnet2Prod, !Ref AWS::NoValue]
+    Export:
+      Name: !If [OrDoubleTripleAZSelectedProd, !Sub "${AWS::StackName}-PrivateSubnet2Id", !Ref AWS::NoValue]
+
+  PrivateSubnet3Id:
+    Description: "Private Subnet 3 ID"
+    Condition: TripleAZSelectedProd
+    Value: !If [TripleAZSelectedProd, !Ref PrivateSubnet3Prod, !Ref AWS::NoValue]
+    Export:
+      Name: !If [TripleAZSelectedProd, !Sub "${AWS::StackName}-PrivateSubnet3Id", !Ref AWS::NoValue]
+
+  PrivateDBSubnet1Id:
+    Description: "Private DB Subnet 1 ID"
+    Condition: CreatePrivateDBSubnetProd
+    Value: !If [CreatePrivateDBSubnetProd, !Ref PrivateDBSubnet1Prod, !Ref AWS::NoValue]
+    Export:
+      Name: !If [CreatePrivateDBSubnetProd, !Sub "${AWS::StackName}-PrivateDBSubnet1Id", !Ref AWS::NoValue]
+
+  PrivateDBSubnet2Id:
+    Description: "Private DB Subnet 2 ID"
+    Condition: CreatePrivateDBSubnetAndMultipleAZsSelectedProd
+    Value: !If [CreatePrivateDBSubnetAndMultipleAZsSelectedProd, !Ref PrivateDBSubnet2Prod, !Ref AWS::NoValue]
+    Export:
+      Name: !If [CreatePrivateDBSubnetAndMultipleAZsSelectedProd, !Sub "${AWS::StackName}-PrivateDBSubnet2Id", !Ref AWS::NoValue]
+
+  PrivateDBSubnet3Id:
+    Description: "Private DB Subnet 3 ID"
+    Condition: CreatePrivateDBSubnetAndTripleAZSelectedProd
+    Value: !If [CreatePrivateDBSubnetAndTripleAZSelectedProd, !Ref PrivateDBSubnet3Prod, !Ref AWS::NoValue]
+    Export:
+      Name: !If [CreatePrivateDBSubnetAndTripleAZSelectedProd, !Sub "${AWS::StackName}-PrivateDBSubnet3Id", !Ref AWS::NoValue]
+

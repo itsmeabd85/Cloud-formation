@@ -1,0 +1,198 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: CloudFront Distribution with choice of new or existing S3 bucket and mandatory existing ALB
+
+Parameters:
+  OriginType:
+    Type: String
+    Description: Choose the origin type for the CloudFront distribution
+    AllowedValues: ["S3", "ALB"]
+    Default: "S3"
+
+  NewS3BucketName:
+    Type: String
+    Description: The name of the new S3 bucket to create
+    ConstraintDescription: "Bucket name must be all lowercase, alphanumeric and unique"
+
+  ExistingS3BucketName:
+    Type: String
+    Description: Enter the name of the existing S3 bucket
+    ConstraintDescription: "The name must be a valid S3 bucket name"
+
+  ExistingALBDomainName:
+    Type: String
+    Description: Enter the domain name of the existing ALB
+
+  EnableWAF:
+    Type: String
+    Description: Enable or disable Web Application Firewall (WAF)
+    AllowedValues: ["Yes", "No"]
+    Default: "No"
+
+Conditions:
+  UseS3Origin: !Equals [!Ref OriginType, "S3"]
+  UseALBOrigin: !Equals [!Ref OriginType, "ALB"]
+  UseNewS3Bucket: !And
+    - !Equals [!Ref OriginType, "S3"]
+    - !Not [!Equals [!Ref NewS3BucketName, ""]]
+  UseExistingS3Bucket: !And
+    - !Equals [!Ref OriginType, "S3"]
+    - !Not [!Equals [!Ref ExistingS3BucketName, ""]]
+  EnableWAFCondition: !Equals [!Ref EnableWAF, "Yes"]
+
+Resources:
+  S3Bucket:
+    Type: AWS::S3::Bucket
+    Condition: UseNewS3Bucket
+    Properties:
+      BucketName: !Ref NewS3BucketName
+      AccessControl: PublicRead
+      WebsiteConfiguration:
+        IndexDocument: index.html
+        ErrorDocument: error.html
+
+  S3BucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Condition: UseNewS3Bucket
+    Properties:
+      Bucket: !Ref S3Bucket
+      PolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal: "*"
+            Action: "s3:GetObject"
+            Resource: !Sub "arn:aws:s3:::${S3Bucket}/*"
+
+  OriginAccessIdentity:
+    Type: AWS::CloudFront::CloudFrontOriginAccessIdentity
+    Condition: UseNewS3Bucket
+    Properties:
+      CloudFrontOriginAccessIdentityConfig:
+        Comment: Access Identity for S3 bucket
+
+  WAFWebACL:
+    Type: AWS::WAFv2::WebACL
+    Condition: EnableWAFCondition
+    Properties:
+      Name: MyWebACL
+      Scope: CLOUDFRONT
+      DefaultAction:
+        Allow: {}
+      VisibilityConfig:
+        SampledRequestsEnabled: true
+        CloudWatchMetricsEnabled: true
+        MetricName: MyWebACL
+      Rules:
+        - Name: BadBotControl
+          Priority: 0
+          Action:
+            Block: {}
+          Statement:
+            ManagedRuleGroupStatement:
+              VendorName: AWS
+              Name: AWSManagedRulesBotControlRuleSet
+          VisibilityConfig:
+            SampledRequestsEnabled: true
+            CloudWatchMetricsEnabled: true
+            MetricName: BadBotControl
+        - Name: BlacklistRule
+          Priority: 1
+          Action:
+            Block: {}
+          Statement:
+            IPSetReferenceStatement:
+              Arn: !Ref BlacklistIPSet
+          VisibilityConfig:
+            SampledRequestsEnabled: true
+            CloudWatchMetricsEnabled: true
+            MetricName: BlacklistRule
+        - Name: WhitelistRule
+          Priority: 2
+          Action:
+            Allow: {}
+          Statement:
+            IPSetReferenceStatement:
+              Arn: !Ref WhitelistIPSet
+          VisibilityConfig:
+            SampledRequestsEnabled: true
+            CloudWatchMetricsEnabled: true
+            MetricName: WhitelistRule
+        - Name: XSSRule
+          Priority: 3
+          Action:
+            Block: {}
+          Statement:
+            ManagedRuleGroupStatement:
+              VendorName: AWS
+              Name: AWSManagedRulesSQLiRuleSet
+          VisibilityConfig:
+            SampledRequestsEnabled: true
+            CloudWatchMetricsEnabled: true
+            MetricName: XSSRule
+
+  BlacklistIPSet:
+    Type: AWS::WAFv2::IPSet
+    Condition: EnableWAFCondition
+    Properties:
+      Name: BlacklistIPSet
+      Scope: CLOUDFRONT
+      IPAddressVersion: IPV4
+      Addresses:
+        - 203.0.113.0/24
+
+  WhitelistIPSet:
+    Type: AWS::WAFv2::IPSet
+    Condition: EnableWAFCondition
+    Properties:
+      Name: WhitelistIPSet
+      Scope: CLOUDFRONT
+      IPAddressVersion: IPV4
+      Addresses:
+        - 192.0.2.0/24
+
+  CloudFrontDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        Origins:
+          - !If
+            - UseS3Origin
+            - Id: S3Origin
+              DomainName:
+                !If [
+                  UseNewS3Bucket,
+                  !GetAtt S3Bucket.RegionalDomainName,
+                  !Sub "${ExistingS3BucketName}.s3.amazonaws.com",
+                ]
+              S3OriginConfig:
+                OriginAccessIdentity:
+                  !If [
+                    UseNewS3Bucket,
+                    !Sub "origin-access-identity/cloudfront/${OriginAccessIdentity}",
+                    !Ref "AWS::NoValue",
+                  ]
+            - !If
+              - UseALBOrigin
+              - Id: ALBOrigin
+                DomainName: !Ref ExistingALBDomainName
+                CustomOriginConfig:
+                  HTTPPort: 80
+                  HTTPSPort: 443
+                  OriginProtocolPolicy: http-only
+                OriginCustomHeaders:
+                  - HeaderName: "X-Custom-Header"
+                    HeaderValue: "random-value-1234567890"
+              - !Ref "AWS::NoValue"
+        DefaultCacheBehavior:
+          TargetOriginId: !If [UseS3Origin, "S3Origin", "ALBOrigin"]
+          ViewerProtocolPolicy: redirect-to-https
+          ForwardedValues:
+            QueryString: false
+        ViewerCertificate:
+          CloudFrontDefaultCertificate: true
+        WebACLId: !If [EnableWAFCondition, !Ref WAFWebACL, !Ref "AWS::NoValue"]
+        CustomErrorResponses:
+          - ErrorCode: 504
+            ResponseCode: 504
+            ResponsePagePath: /error.html
+            ErrorCachingMinTTL: 300

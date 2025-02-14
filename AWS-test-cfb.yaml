@@ -1,0 +1,108 @@
+AWSTemplateFormatVersion: "2010-09-09"
+
+Description: Create a VPC with one Public, Private & DB subnet
+
+Parameters:
+  VpcCidr:
+    Type: String
+    Default: 10.0.0.0/16
+    Description: Enter the CIDR IP range for the VPC
+
+  PublicSubnetCidr:
+    Type: String
+    Default: 10.0.0.0/24
+    Description: Enter the CIDR IP range for the Public Subnet
+
+  PrivateSubnetCidr:
+    Type: String
+    Default: 10.0.1.0/24
+    Description: Enter the CIDR IP range for the Private Subnet
+
+  DBSubnetCidr:
+    Type: String
+    Default: 10.0.2.0/24
+    Description: Enter the CIDR IP range for the DB Subnet
+
+  MultiAzSubnets:
+    Type: String
+    Default: "yes"
+    Description: Specify whether to create subnets in multiple availability zones (yes or no)
+    AllowedValues:
+      - "yes"
+      - "no"
+
+Conditions:
+  CreateMultiAzSubnets: !Equals [!Ref MultiAzSubnets, "yes"]
+  CreateDBSubnet: !Equals [!Ref DBSubnetCidr, "yes"]
+
+Resources:
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCidr
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+
+  VPCGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId: !Ref InternetGateway
+      VpcId: !Ref VPC
+
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PublicSubnetCidr
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      MapPublicIpOnLaunch: true
+
+  PrivateSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PrivateSubnetCidr
+      AvailabilityZone: !Select [0, !GetAZs ""]
+
+  DBSubnet:
+    Type: AWS::EC2::Subnet
+    Condition: CreateDBSubnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref DBSubnetCidr
+      AvailabilityZone: !Select [0, !GetAZs ""]
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: VPCGatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet
+      RouteTableId: !Ref PublicRouteTable
+
+  PrivateSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet
+      RouteTableId: !Ref PublicRouteTable
+
+  DBSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Condition: CreateDBSubnet
+    Properties:
+      SubnetId: !Ref DBSubnet
+      RouteTableId: !Ref PublicRouteTable

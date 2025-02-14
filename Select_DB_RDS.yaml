@@ -1,0 +1,123 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "AWS CloudFormation Template to create an RDS DB instance with a DB subnet group and optional Secrets Manager integration"
+
+Parameters:
+  DBEngine:
+    Type: String
+    Description: "Database engine to be used"
+    AllowedValues:
+      - mysql
+      - postgres
+      - mariadb
+    Default: mysql
+
+  MySQLVersion:
+    Type: String
+    Description: "MySQL version"
+    AllowedValues:
+      - "8.0.35"
+      - "5.7.32"
+      - "5.6.51"
+    Default: "8.0.35"
+
+  PostgreSQLVersion:
+    Type: String
+    Description: "PostgreSQL version"
+    AllowedValues:
+      - "16.2"
+      - "16.3"
+    Default: "16.2"
+
+  MariaDBVersion:
+    Type: String
+    Description: "MariaDB version"
+    AllowedValues:
+      - "10.11.6"
+      - "10.11.7"
+    Default: "10.11.6"
+
+  CredentialMethod:
+    Type: String
+    Description: "Method to provide database credentials"
+    AllowedValues:
+      - UsernamePassword
+      - SecretsManager
+    Default: UsernamePassword
+
+  DBUsername:
+    Type: String
+    Description: "Master username for the DB instance (required for both methods)"
+    Default: "DbTestSql"
+
+  DBPassword:
+    Type: String
+    Description: "Master password for the DB instance (required if using UsernamePassword method)"
+    NoEcho: true
+    Default: "RdsSql@123"
+
+  DBInstanceClass:
+    Description: "The RDS instance type"
+    Type: String
+    Default: db.t3.micro
+    AllowedValues:
+      - db.t3.micro
+      - db.t3.small
+      - db.t3.medium
+
+  SubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: "Select at least 2 private subnets from 2 different Availability Zones"
+
+Conditions:
+  UseUsernamePassword: !Equals [!Ref CredentialMethod, "UsernamePassword"]
+  UseSecretsManager: !Equals [!Ref CredentialMethod, "SecretsManager"]
+
+  IsMySQL: !Equals [!Ref DBEngine, "mysql"]
+  IsPostgres: !Equals [!Ref DBEngine, "postgres"]
+  IsMariaDB: !Equals [!Ref DBEngine, "mariadb"]
+
+Resources:
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: "Subnet group for RDS DB"
+      SubnetIds: !Ref SubnetIds
+
+  DBSecret:
+    Type: AWS::SecretsManager::Secret
+    Condition: UseSecretsManager
+    Properties:
+      Description: "Credentials for RDS DB instance"
+      GenerateSecretString:
+        SecretStringTemplate: '{"username": "mydbuser"}'
+        GenerateStringKey: "password"
+        PasswordLength: 16
+        ExcludeCharacters: '"@/\\'
+
+  DBInstance:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      Engine: !Ref DBEngine
+      EngineVersion: !If
+        - IsMySQL
+        - !Ref MySQLVersion
+        - !If
+          - IsPostgres
+          - !Ref PostgreSQLVersion
+          - !Ref MariaDBVersion
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      DBInstanceClass: !Ref DBInstanceClass
+      AllocatedStorage: 20
+      PubliclyAccessible: false
+      MultiAZ: false
+      MasterUsername: !If
+        - UseUsernamePassword
+        - !Ref DBUsername
+        - !Sub "{{resolve:secretsmanager:${DBSecret}::username}}"
+      MasterUserPassword: !If
+        - UseUsernamePassword
+        - !Ref DBPassword
+        - !Sub "{{resolve:secretsmanager:${DBSecret}::password}}"
+      Tags:
+        - Key: Name
+          Value: "Prod_RDS_Instance"
